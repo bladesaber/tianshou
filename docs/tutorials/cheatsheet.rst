@@ -101,7 +101,7 @@ This is related to `Issue 42 <https://github.com/thu-ml/tianshou/issues/42>`_.
 
 If you want to get log stat from data stream / pre-process batch-image / modify the reward with given env info, use ``preproces_fn`` in :class:`~tianshou.data.Collector`. This is a hook which will be called before the data adding into the buffer.
 
-This function receives up to 7 keys ``obs``, ``act``, ``rew``, ``done``, ``obs_next``, ``info``, and ``policy``, as listed in :class:`~tianshou.data.Batch`. It returns the modified part within a :class:`~tianshou.data.Batch`. Only ``obs`` is defined at env.reset, while every key is specified for normal steps.
+It will receive with only "obs" when the collector resets the environment, and will receive five keys "obs_next", "rew", "done", "info", "policy" in a normal env step. It returns either a dict or a :class:`~tianshou.data.Batch` with the modified keys and values.
 
 These variables are intended to gather all the information requires to keep track of a simulation step, namely the (observation, action, reward, done flag, next observation, info, intermediate result of the policy) at time t, for the whole duration of the simulation.
 
@@ -122,7 +122,7 @@ For example, you can write your hook as:
         def preprocess_fn(**kwargs):
             """change reward to zero mean"""
             # if only obs exist -> reset
-            # if obs/act/rew/done/... exist -> normal step
+            # if obs_next/act/rew/done/policy exist -> normal step
             if 'rew' not in kwargs:
                 # means that it is called after env.reset(), it can only process the obs
                 return Batch()  # none of the variables are needed to be updated
@@ -144,7 +144,7 @@ And finally,
 ::
 
     test_processor = MyProcessor(size=100)
-    collector = Collector(policy, env, buffer, test_processor.preprocess_fn)
+    collector = Collector(policy, env, buffer, preprocess_fn=test_processor.preprocess_fn)
 
 Some examples are in `test/base/test_collector.py <https://github.com/thu-ml/tianshou/blob/master/test/base/test_collector.py>`_.
 
@@ -156,17 +156,17 @@ RNN-style Training
 
 This is related to `Issue 19 <https://github.com/thu-ml/tianshou/issues/19>`_.
 
-First, add an argument "stack_num" to :class:`~tianshou.data.ReplayBuffer`:
+First, add an argument "stack_num" to :class:`~tianshou.data.ReplayBuffer`, :class:`~tianshou.data.VectorReplayBuffer`, or other types of buffer you are using, like:
 ::
 
     buf = ReplayBuffer(size=size, stack_num=stack_num)
 
 Then, change the network to recurrent-style, for example, :class:`~tianshou.utils.net.common.Recurrent`, :class:`~tianshou.utils.net.continuous.RecurrentActorProb` and :class:`~tianshou.utils.net.continuous.RecurrentCritic`.
 
-The above code supports only stacked-observation. If you want to use stacked-action (for Q(stacked-s, stacked-a)), stacked-reward, or other stacked variables, you can add a ``gym.Wrapper`` to modify the state representation. For example, if we add a wrapper that map [s, a] pair to a new state:
+The above code supports only stacked-observation. If you want to use stacked-action (for Q(stacked-s, stacked-a)), stacked-reward, or other stacked variables, you can add a ``gym.Wrapper`` to modify the state representation. For example, if we add a wrapper that map ``[s, a]`` pair to a new state:
 
-- Before: (s, a, s', r, d) stored in replay buffer, and get stacked s;
-- After applying wrapper: ([s, a], a, [s', a'], r, d) stored in replay buffer, and get both stacked s and a.
+- Before: ``(s, a, s', r, d)`` stored in replay buffer, and get stacked s;
+- After applying wrapper: ``([s, a], a, [s', a'], r, d)`` stored in replay buffer, and get both stacked s and a.
 
 
 .. _self_defined_env:
@@ -206,14 +206,13 @@ The state can be a ``numpy.ndarray`` or a Python dictionary. Take "FetchReach-v1
 It shows that the state is a dictionary which has 3 keys. It will stored in :class:`~tianshou.data.ReplayBuffer` as:
 ::
 
-    >>> from tianshou.data import ReplayBuffer
+    >>> from tianshou.data import Batch, ReplayBuffer
     >>> b = ReplayBuffer(size=3)
-    >>> b.add(obs=e.reset(), act=0, rew=0, done=0)
+    >>> b.add(Batch(obs=e.reset(), act=0, rew=0, done=0))
     >>> print(b)
     ReplayBuffer(
         act: array([0, 0, 0]),
-        done: array([0, 0, 0]),
-        info: Batch(),
+        done: array([False, False, False]),
         obs: Batch(
                  achieved_goal: array([[1.34183265, 0.74910039, 0.53472272],
                                        [0.        , 0.        , 0.        ],
@@ -234,7 +233,6 @@ It shows that the state is a dictionary which has 3 keys. It will stored in :cla
                                        0.00000000e+00,  0.00000000e+00,  0.00000000e+00,
                                        0.00000000e+00]]),
              ),
-        policy: Batch(),
         rew: array([0, 0, 0]),
     )
     >>> print(b.obs.achieved_goal)
@@ -278,7 +276,7 @@ For self-defined class, the replay buffer will store the reference into a ``nump
 
     >>> import networkx as nx
     >>> b = ReplayBuffer(size=3)
-    >>> b.add(obs=nx.Graph(), act=0, rew=0, done=0)
+    >>> b.add(Batch(obs=nx.Graph(), act=0, rew=0, done=0))
     >>> print(b)
     ReplayBuffer(
         act: array([0, 0, 0]),
@@ -298,6 +296,10 @@ But the state stored in the buffer may be a shallow-copy. To make sure each of y
     def step(a):
         ...
         return copy.deepcopy(self.graph), reward, done, {}
+
+.. note ::
+
+    Please make sure this variable is numpy-compatible, e.g., np.array([variable]) will not result in an empty array. Otherwise, ReplayBuffer cannot create an numpy array to store it.
 
 
 .. _marl_example:

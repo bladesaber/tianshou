@@ -47,10 +47,11 @@ setup(
     install_requires=[
         "gym>=0.15.4",
         "tqdm",
-        "numpy",
+        "numpy>1.16.0",  # https://github.com/numpy/numpy/issues/12793
         "tensorboard",
         "torch>=1.4.0",
         "numba>=0.51.0",
+        "h5py>=2.10.0",  # to match tensorflow's minimal requirements
     ],
     extras_require={
         "dev": [
@@ -61,6 +62,7 @@ setup(
             "pytest",
             "pytest-cov",
             "ray>=1.0.0",
+            "networkx",
             "mypy",
             "pydocstyle",
             "doc8",

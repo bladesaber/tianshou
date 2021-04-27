@@ -2,6 +2,8 @@ import gym
 import time
 import random
 import numpy as np
+import networkx as nx
+from copy import deepcopy
 from gym.spaces import Discrete, MultiDiscrete, Box, Dict, Tuple
 
 
@@ -10,15 +12,16 @@ class MyTestEnv(gym.Env):
     """
 
     def __init__(self, size, sleep=0, dict_state=False, recurse_state=False,
-                 ma_rew=0, multidiscrete_action=False, random_sleep=False):
-        assert not (
-            dict_state and recurse_state), \
-            "dict_state and recurse_state cannot both be true"
+                 ma_rew=0, multidiscrete_action=False, random_sleep=False,
+                 array_state=False):
+        assert dict_state + recurse_state + array_state <= 1, \
+            "dict_state / recurse_state / array_state can be only one true"
         self.size = size
         self.sleep = sleep
         self.random_sleep = random_sleep
         self.dict_state = dict_state
         self.recurse_state = recurse_state
+        self.array_state = array_state
         self.ma_rew = ma_rew
         self._md_action = multidiscrete_action
         # how many steps this env has stepped
@@ -36,6 +39,8 @@ class MyTestEnv(gym.Env):
                      "rand": Box(shape=(1, 2), low=0, high=1,
                                  dtype=np.float64)})
                  })
+        elif array_state:
+            self.observation_space = Box(shape=(4, 84, 84), low=0, high=255)
         else:
             self.observation_space = Box(shape=(1, ), low=0, high=size - 1)
         if multidiscrete_action:
@@ -70,8 +75,15 @@ class MyTestEnv(gym.Env):
         elif self.recurse_state:
             return {'index': np.array([self.index], dtype=np.float32),
                     'dict': {"tuple": (np.array([1],
-                                       dtype=np.int64), self.rng.rand(2)),
+                                       dtype=int), self.rng.rand(2)),
                              "rand": self.rng.rand(1, 2)}}
+        elif self.array_state:
+            img = np.zeros([4, 84, 84], int)
+            img[3, np.arange(84), np.arange(84)] = self.index
+            img[2, np.arange(84)] = self.index
+            img[1, :, np.arange(84)] = self.index
+            img[0] = self.index
+            return img
         else:
             return np.array([self.index], dtype=np.float32)
 
@@ -97,3 +109,30 @@ class MyTestEnv(gym.Env):
             self.done = self.index == self.size
             return self._get_state(), self._get_reward(), \
                 self.done, {'key': 1, 'env': self}
+
+
+class NXEnv(gym.Env):
+    def __init__(self, size, obs_type, feat_dim=32):
+        self.size = size
+        self.feat_dim = feat_dim
+        self.graph = nx.Graph()
+        self.graph.add_nodes_from(list(range(size)))
+        assert obs_type in ["array", "object"]
+        self.obs_type = obs_type
+
+    def _encode_obs(self):
+        if self.obs_type == "array":
+            return np.stack([v["data"] for v in self.graph._node.values()])
+        return deepcopy(self.graph)
+
+    def reset(self):
+        graph_state = np.random.rand(self.size, self.feat_dim)
+        for i in range(self.size):
+            self.graph.nodes[i]["data"] = graph_state[i]
+        return self._encode_obs()
+
+    def step(self, action):
+        next_graph_state = np.random.rand(self.size, self.feat_dim)
+        for i in range(self.size):
+            self.graph.nodes[i]["data"] = next_graph_state[i]
+        return self._encode_obs(), 1.0, 0, {}

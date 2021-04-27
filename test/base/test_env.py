@@ -1,3 +1,4 @@
+import sys
 import time
 import numpy as np
 from gym.spaces.discrete import Discrete
@@ -6,15 +7,15 @@ from tianshou.env import DummyVectorEnv, SubprocVectorEnv, \
     ShmemVectorEnv, RayVectorEnv
 
 if __name__ == '__main__':
-    from env import MyTestEnv
+    from env import MyTestEnv, NXEnv
 else:  # pytest
-    from test.base.env import MyTestEnv
+    from test.base.env import MyTestEnv, NXEnv
 
 
 def has_ray():
     try:
-        import ray
-        return hasattr(ray, 'init')  # avoid PEP8 F401 Error
+        import ray  # noqa: F401
+        return True
     except ImportError:
         return False
 
@@ -22,7 +23,7 @@ def has_ray():
 def recurse_comp(a, b):
     try:
         if isinstance(a, np.ndarray):
-            if a.dtype == np.object:
+            if a.dtype == object:
                 return np.array(
                     [recurse_comp(m, n) for m, n in zip(a, b)]).all()
             else:
@@ -79,7 +80,8 @@ def test_async_env(size=10000, num=8, sleep=0.1):
         Batch.cat(o)
         v.close()
         # assure 1/7 improvement
-        assert spent_time < 6.0 * sleep * num / (num + 1)
+        if sys.platform != "darwin":  # macOS cannot pass this check
+            assert spent_time < 6.0 * sleep * num / (num + 1)
 
 
 def test_async_check_id(size=100, num=4, sleep=.2, timeout=.7):
@@ -116,7 +118,8 @@ def test_async_check_id(size=100, num=4, sleep=.2, timeout=.7):
                 pass_check = 0
                 break
         total_pass += pass_check
-    assert total_pass >= 2
+    if sys.platform != "darwin":  # macOS cannot pass this check
+        assert total_pass >= 2
 
 
 def test_vecenv(size=10, num=8, sleep=0.001):
@@ -167,7 +170,18 @@ def test_vecenv(size=10, num=8, sleep=0.001):
         v.close()
 
 
+def test_env_obs():
+    for obs_type in ["array", "object"]:
+        envs = SubprocVectorEnv([
+            lambda i=x: NXEnv(i, obs_type) for x in [5, 10, 15, 20]])
+        obs = envs.reset()
+        assert obs.dtype == object
+        obs = envs.step([1, 1, 1, 1])[0]
+        assert obs.dtype == object
+
+
 if __name__ == '__main__':
+    test_env_obs()
     test_vecenv()
     test_async_env()
     test_async_check_id()
